@@ -1,0 +1,22 @@
+# Example sweep config used by `make sweep` and CLI smoke tests.
+#
+# trader_class: full dotted path to the Trader class to instantiate.
+# trader_kwargs: extra kwargs passed to every trader instance (merged with swept params).
+# position_limits: per-product limits enforced by the matching engine.
+# params: mapping of parameter name -> list of values. Full cartesian product is run.
+# workers: process pool size. 1 = serial.
+# seed: deterministic seed for runner.
+# metric: metric to render heatmaps on.
+
+trader_class: example_trader.Trader
+trader_kwargs: {}
+position_limits:
+  RESIN: 50
+  KELP: 50
+params:
+  peg: [9999, 10000, 10001]
+  quote_size: [3, 5, 7]
+  heavy: [30, 40]
+workers: 1
+seed: 0
+metric: final_pnl

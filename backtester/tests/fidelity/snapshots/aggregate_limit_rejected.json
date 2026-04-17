@@ -1,0 +1,13 @@
+{
+  "new_book": {
+    "buy_orders": {},
+    "sell_orders": {
+      "10000": -100
+    }
+  },
+  "new_position": 0,
+  "rejections": [
+    "Orders for K exceeded position limit of 50"
+  ],
+  "trades": []
+}

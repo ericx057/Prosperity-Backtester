@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "prosperity-backtester"
+version = "0.1.0"
+description = "Fidelity-faithful offline backtester for IMC Prosperity"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "matplotlib>=3.7",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=7.4"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["backtester*"]
+
+[tool.pytest.ini_options]
+testpaths = ["backtester/tests"]
+python_files = ["test_*.py"]
+markers = [
+    "unit: fast unit tests",
+    "fidelity: matching-engine fidelity fixture tests",
+    "slow: long-running tests",
+    "replay: tests that need live-log fixtures (skipped until populated)",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+addopts = "-ra --strict-markers"

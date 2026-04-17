@@ -1,0 +1,15 @@
+{
+  "new_book": {
+    "buy_orders": {
+      "9990": 5
+    },
+    "sell_orders": {
+      "10004": -5
+    }
+  },
+  "new_position": 0,
+  "rejections": [
+    "Orders for K rejected: self-cross (buy 10002 >= sell 10001)"
+  ],
+  "trades": []
+}
