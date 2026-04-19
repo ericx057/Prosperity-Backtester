@@ -74,6 +74,7 @@ backtester/
     data_loader.py        # CSV -> per-tick OrderDepth snapshots
     matching_engine.py    # pure, fidelity-critical (no deps on runner/metrics/reporter)
     runner.py             # tick loop, calls trader.run()
+    round2.py             # Round 2 MAF auction (Round2Config, resolve_maf_auction)
     metrics.py            # PnL, drawdown, Sharpe, fill quality
     reporter.py           # JSON + matplotlib 4-panel
     sweeper.py            # grid search w/ multiprocessing + heatmaps
@@ -89,6 +90,148 @@ requirements.txt
 Makefile
 .fidelity_lock            # sha256 of matching_engine.py when fidelity suite last passed
 ```
+
+## Round 2: Market Access Fee (MAF)
+
+Round 2 of IMC Prosperity 4 (2026) adds a pay-to-win auction on top of the
+Round 1 trading loop:
+
+> "You may include a Market Access Fee (MAF) in your Python program to gain
+> access to an additional 25% of quotes. Only the top 50% of total MAFs will
+> secure the contract, pay the MAF, and access this additional 25%. Others
+> will not have to pay their MAF and will continue trading with the original
+> volume allocation."
+
+The backtester integrates this as an opt-in auction wrapper around the
+matching engine. None of the Round 2 logic leaks into the Round 1 execution
+path; a trader with no MAF declaration and no `--round2-config` produces
+byte-identical output to the pre-Round-2 runner.
+
+### Configurable field names and magic numbers
+
+Per explicit project rule, the backtester does not hardcode any Round 2
+variable name or numeric magic. Every knob lives on `Round2Config`
+(`backtester/round2.py`) and is overridable via YAML:
+
+| Round2Config field              | Default      | Purpose                                                        |
+| ------------------------------- | ------------ | -------------------------------------------------------------- |
+| `enabled`                       | `False`      | Master switch. Off = identical to Round 1.                     |
+| `maf_method_name`               | `"get_maf"`  | Method on the Trader the runner calls to get the MAF bid.      |
+| `maf_attribute_name`            | `"maf"`      | Fallback attribute if the method is absent.                    |
+| `maf_field_name`                | `"MAF"`      | Fallback field inside (JSON-decoded) traderData.               |
+| `volume_boost_pct`              | `0.25`       | Multiplier for winner's visible book depth.                    |
+| `winner_top_fraction`           | `0.5`        | Top fraction of the MAF field that wins the auction.           |
+| `auction_mode`                  | `"threshold"`| `"threshold"`, `"distribution"`, `"always_win"`, `"always_lose"`. |
+| `competition_threshold`         | `0.0`        | (`threshold` mode) Trader wins iff MAF >= threshold.           |
+| `competition_sample_size`       | `19`         | (`distribution` mode) Number of competing MAFs sampled.        |
+| `competition_mean` / `_std`     | `0.0` / `1.0`| (`distribution` mode) `N(mean, std)` for competing bids.       |
+| `auction_seed`                  | `None`       | RNG seed for distribution mode; falls back to backtest `seed`. |
+| `auction_frequency`             | `"tick"`     | `"tick"` (re-auction each tick) or `"once"` (cache outcome).   |
+
+### Declaring a MAF in your trader
+
+Preferred: expose a `get_maf(state)` method. The runner calls it once per
+tick and supports three return shapes:
+
+```python
+class Trader:
+    def run(self, state):
+        ...
+
+    def get_maf(self, state) -> float:
+        # Single scalar = round-level MAF, applied to every product.
+        return 7.5
+
+    # Or return a per-product mapping:
+    def get_maf(self, state) -> dict:
+        return {"RESIN": 10.0, "KELP": 2.0}
+```
+
+The method name is configurable. If your trader uses a different convention:
+
+```yaml
+# round2_config.yaml
+maf_method_name: compute_maf
+```
+
+Fallback paths (tried in order if the method is absent):
+
+1. `trader.<maf_attribute_name>` - a scalar or mapping attribute.
+2. `traderData[<maf_field_name>]` - a field inside the JSON-encoded
+   traderData string returned from `run()`.
+
+If none of these resolve a value, the tick has no MAF declaration (no boost,
+no fee).
+
+### Running a Round 2 backtest
+
+```bash
+python backtest.py \
+    --data backtester/tests/fixtures/prices_synthetic_day.csv \
+    --trader example_trader.py \
+    --round2-config backtester/tests/fixtures/round2_config.yaml \
+    --out out/backtest_r2
+```
+
+The stdout summary gains a `round2:` line (`fees_paid=X.XX  wins=Y/Z`) and
+`results.json` gains a `round2` block with per-tick auction outcomes and
+fees.
+
+### Sweeping Round 2 parameters
+
+Parameter names prefixed with `round2.` are routed into the Round 2 config
+for that combo. Everything else flows to the trader factory as before.
+
+Example: `backtester/tests/fixtures/round2_sweep_config.yaml` sweeps both
+trader knobs and auction knobs together. The sweep CSV adds
+`total_fees_paid` and `net_pnl = final_pnl - total_fees_paid` columns so
+plateau analysis can be done on net PnL directly:
+
+```bash
+python sweep.py \
+    --data backtester/tests/fixtures/prices_synthetic_day.csv \
+    --sweep-config backtester/tests/fixtures/round2_sweep_config.yaml \
+    --out out/sweep_r2
+```
+
+### Auction simulation assumptions
+
+The backtester has no live visibility into competitors' bids. The three
+auction modes trade off different forms of uncertainty:
+
+- `threshold`: Simplest. You win iff your MAF is at least
+  `competition_threshold`. Good for sensitivity analysis ("would I be
+  net-positive at any plausible clearing price?") but does not model
+  uncertainty in that clearing price.
+- `distribution`: Samples `competition_sample_size` competing MAFs from
+  `N(mean, std)` and ranks your bid against the full field. Seeded for
+  determinism. Models uncertainty but the shape of the competitor
+  distribution is a free parameter.
+- `always_win` / `always_lose`: Pinned outcomes, useful for tests and for
+  isolating "do I benefit from +25% at all" from "will I clear the auction."
+
+Use Round 2 backtests for sensitivity analysis, not absolute PnL prediction.
+
+### Open questions (mechanic ambiguities)
+
+The competition wiki was not publicly indexed during implementation. The
+following were answered with defensible defaults, subject to confirmation
+from official docs:
+
+1. **Per-round vs. per-product MAF?** Default: per-product, via a dict return
+   from `get_maf`. A scalar return is treated as a round-level MAF applied to
+   every product. Covers both interpretations.
+2. **What is "+25% of quotes"?** Default: NPC book depth boost (more
+   counterparty liquidity to trade against). Alternative (bigger user
+   orders) is not implemented - the matching engine's `volume_multiplier`
+   scales the book only.
+3. **Tie-breaking in "top 50%"?** Default: strict. 20 teams, trader ranked
+   10th does not win; 9th does.
+4. **MAF value type?** Default: float. An integer bid is the trivial
+   sub-case.
+
+Change any of these by editing `Round2Config` or adjusting `auction_mode` /
+`auction_frequency`.
 
 ## Architecture invariants
 

@@ -31,6 +31,7 @@ import numpy as np  # noqa: E402
 
 from backtester.data_loader import DayData
 from backtester.metrics import compute_metrics
+from backtester.round2 import Round2Config, round2_config_from_dict
 from backtester.runner import BacktestConfig, run_backtest
 
 
@@ -83,6 +84,10 @@ class SweepConfig:
     workers: int = 1
     seed: Optional[int] = None
     timeout_ms: int = 900
+    # Optional Round 2 base config. Swept Round 2 dimensions (e.g.
+    # competition_threshold) are merged on top per combo via params whose
+    # name is prefixed with ``round2.``.
+    round2: Optional[Round2Config] = None
 
 
 def cartesian_combos(params: List[SweepParam]) -> List[Dict[str, Any]]:
@@ -97,14 +102,63 @@ def cartesian_combos(params: List[SweepParam]) -> List[Dict[str, Any]]:
     return combos
 
 
+_ROUND2_PARAM_PREFIX = "round2."
+
+
+def _split_combo(combo: Dict[str, Any]) -> tuple[Dict[str, Any], Dict[str, Any]]:
+    """Split a combo into (trader_kwargs, round2_overrides).
+
+    Any param name starting with ``round2.`` is routed into the Round 2
+    config for that run. Everything else is passed to the trader factory.
+    """
+    trader_kwargs: Dict[str, Any] = {}
+    round2_overrides: Dict[str, Any] = {}
+    for key, val in combo.items():
+        if key.startswith(_ROUND2_PARAM_PREFIX):
+            round2_overrides[key[len(_ROUND2_PARAM_PREFIX):]] = val
+        else:
+            trader_kwargs[key] = val
+    return trader_kwargs, round2_overrides
+
+
+def _apply_round2_overrides(
+    base: Optional[Round2Config], overrides: Dict[str, Any]
+) -> Optional[Round2Config]:
+    """Return a new Round2Config with the given field overrides applied.
+
+    If both ``base`` is ``None`` and ``overrides`` is empty, returns ``None``.
+    """
+    if not overrides:
+        return base
+    if base is None:
+        # User is sweeping Round 2 dims without providing a base - start from
+        # defaults and then apply overrides.
+        return round2_config_from_dict(overrides)
+    # Merge: base first, then overrides win.
+    merged: Dict[str, Any] = dict(base.__dict__)
+    merged.update(overrides)
+    return round2_config_from_dict(merged)
+
+
 def _run_one(args: tuple) -> Dict[str, Any]:
     """Worker entry point. Must be module-level for pickling."""
-    combo, trader_factory, data, position_limits, seed, timeout_ms = args
-    trader = trader_factory(**combo)
+    (
+        combo,
+        trader_factory,
+        data,
+        position_limits,
+        seed,
+        timeout_ms,
+        base_round2,
+    ) = args
+    trader_kwargs, round2_overrides = _split_combo(combo)
+    trader = trader_factory(**trader_kwargs)
+    round2_cfg = _apply_round2_overrides(base_round2, round2_overrides)
     config = BacktestConfig(
         position_limits=position_limits,
         seed=seed,
         timeout_ms=timeout_ms,
+        round2=round2_cfg,
     )
     result = run_backtest(trader, data, config)
     metrics = compute_metrics(result)
@@ -116,6 +170,8 @@ def _run_one(args: tuple) -> Dict[str, Any]:
         num_trades=metrics.num_trades,
         avg_position=metrics.avg_position,
         max_position_abs=metrics.max_position_abs,
+        total_fees_paid=result.total_fees_paid,
+        net_pnl=metrics.final_pnl - result.total_fees_paid,
     )
     return row
 
@@ -124,7 +180,15 @@ def run_sweep(cfg: SweepConfig, data: DayData) -> List[Dict[str, Any]]:
     """Execute the full cartesian sweep. Returns one row per combo."""
     combos = cartesian_combos(cfg.params)
     tasks = [
-        (combo, cfg.trader_factory, data, cfg.position_limits, cfg.seed, cfg.timeout_ms)
+        (
+            combo,
+            cfg.trader_factory,
+            data,
+            cfg.position_limits,
+            cfg.seed,
+            cfg.timeout_ms,
+            cfg.round2,
+        )
         for combo in combos
     ]
 
@@ -151,6 +215,8 @@ def write_sweep_csv(rows: List[Dict[str, Any]], path: Path) -> None:
         "num_trades",
         "avg_position",
         "max_position_abs",
+        "total_fees_paid",
+        "net_pnl",
     ]
     all_keys = set().union(*(r.keys() for r in rows))
     param_cols = sorted(all_keys - set(metric_cols))

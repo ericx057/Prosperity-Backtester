@@ -21,6 +21,7 @@ from typing import Any, Dict, Optional
 import yaml
 
 from backtester.data_loader import load_day
+from backtester.round2 import round2_config_from_dict
 from backtester.sweeper import (
     SweepConfig,
     SweepParam,
@@ -114,12 +115,17 @@ def main(argv: Optional[list] = None) -> int:
 
     workers = args.workers if args.workers is not None else int(cfg.get("workers", 1))
 
+    base_round2 = None
+    if "round2" in cfg and cfg["round2"] is not None:
+        base_round2 = round2_config_from_dict(cfg["round2"])
+
     sweep_cfg = SweepConfig(
         trader_factory=factory,
         params=params,
         position_limits=position_limits,
         workers=workers,
         seed=cfg.get("seed"),
+        round2=base_round2,
     )
 
     rows = run_sweep(sweep_cfg, data)

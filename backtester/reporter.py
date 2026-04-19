@@ -56,12 +56,19 @@ def _tick_dict(log: Any) -> Dict[str, Any]:
 
 def write_json(result: RunResult, path: Path) -> None:
     metrics = compute_metrics(result)
-    doc = {
+    doc: Dict[str, Any] = {
         "products": list(result.products),
         "final_positions": dict(result.final_positions),
         "final_trader_data": result.final_trader_data,
         "metrics": asdict(metrics),
         "tick_logs": [_tick_dict(log) for log in result.tick_logs],
+    }
+    # Round 2 fields are always present (zero / empty for Round 1) so that
+    # downstream tooling can rely on a stable schema.
+    doc["round2"] = {
+        "total_fees_paid": result.total_fees_paid,
+        "auction_outcomes": list(result.maf_auction_outcomes),
+        "maf_bids_per_tick": list(result.maf_bids_per_tick),
     }
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)

@@ -37,6 +37,14 @@ Market-trade convention (follows jmerle reference):
 - Fill via market-trade pass-through => fill price = user's order price (they
   get the improvement vs. the NPC trade), buyer/seller tag: "SUBMISSION" on
   the user's side and the NPC's counterparty on the other side.
+
+Volume-multiplier hook (Round 2 support):
+
+``match`` accepts an optional ``volume_multiplier`` (default 1.0) which scales
+the visible book depth. The engine itself is policy-free - the caller decides
+when/why to boost (e.g., Round 2 auction win). The multiplier is applied to a
+fresh book copy; the input book is never mutated. A multiplier of 1.0 is a
+no-op and produces byte-identical output to pre-Round-2 behavior.
 """
 
 from __future__ import annotations
@@ -64,11 +72,31 @@ class _MarketTradeView:
     sell_capacity: int  # NPC side selling => user can buy from it
 
 
-def _copy_book(book: OrderDepth) -> OrderDepth:
-    """Return a fresh OrderDepth with the same levels. Input is never mutated."""
+def _copy_book(book: OrderDepth, volume_multiplier: float = 1.0) -> OrderDepth:
+    """Return a fresh OrderDepth with the same levels. Input is never mutated.
+
+    If ``volume_multiplier`` differs from 1.0, the copied book's per-level
+    volumes are scaled by it and rounded toward zero (``int(v * m)``). Levels
+    that round to zero volume are dropped. A multiplier of 1.0 is an exact
+    passthrough.
+
+    The multiplier is a pure data transformation; the engine has no opinion on
+    why the caller supplied it.
+    """
     out = OrderDepth()
-    out.buy_orders = dict(book.buy_orders)
-    out.sell_orders = dict(book.sell_orders)
+    if volume_multiplier == 1.0:
+        out.buy_orders = dict(book.buy_orders)
+        out.sell_orders = dict(book.sell_orders)
+        return out
+    for price, qty in book.buy_orders.items():
+        new_qty = int(qty * volume_multiplier)
+        if new_qty > 0:
+            out.buy_orders[price] = new_qty
+    for price, qty in book.sell_orders.items():
+        # sell_orders values are negative; scale and round toward zero.
+        new_qty = int(qty * volume_multiplier)
+        if new_qty < 0:
+            out.sell_orders[price] = new_qty
     return out
 
 
@@ -110,13 +138,21 @@ class MatchingEngine:
         position: int,
         market_trades: Sequence[Trade],
         timestamp: int,
+        volume_multiplier: float = 1.0,
     ) -> MatchResult:
         """Match ``user_orders`` against ``book`` and ``market_trades``.
 
         Returns a fresh ``MatchResult`` and never mutates input arguments.
+
+        ``volume_multiplier`` (default 1.0) scales the visible depth of the
+        book copy used for matching. See ``_copy_book``. Must be non-negative.
         """
+        if volume_multiplier < 0:
+            raise ValueError(
+                f"volume_multiplier must be >= 0; got {volume_multiplier}"
+            )
         rejections: List[str] = []
-        new_book = _copy_book(book)
+        new_book = _copy_book(book, volume_multiplier=volume_multiplier)
 
         # ----- type validation (raises, same as live runner) -----
         for order in user_orders:

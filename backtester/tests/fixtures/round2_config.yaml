@@ -1,0 +1,42 @@
+# Sample Round 2 Market Access Fee (MAF) config. Every knob is overridable.
+#
+# Flat shape (no top-level "round2:" wrapper). load_round2_config_from_yaml
+# accepts both shapes.
+#
+# See backtester/round2.py for field docs.
+
+enabled: true
+
+# Name of the method on the Trader instance that returns the MAF.
+# Override this to rename the method on your trader (e.g. "compute_maf").
+maf_method_name: get_maf
+
+# Fallback attribute name if the method is absent.
+maf_attribute_name: maf
+
+# Fallback field name inside traderData (JSON-decoded) if both above are absent.
+maf_field_name: MAF
+
+# +25% volume boost for auction winners (the Round 2 announcement default).
+volume_boost_pct: 0.25
+
+# Top 50% win (Round 2 announcement default).
+winner_top_fraction: 0.5
+
+# Offline auction simulation. "threshold" is the simplest and most robust for
+# one-trader backtests: you win iff your declared MAF meets the threshold.
+auction_mode: threshold
+competition_threshold: 5.0
+
+# Distribution mode parameters - only used if auction_mode is "distribution".
+competition_sample_size: 19
+competition_mean: 0.0
+competition_std: 1.0
+
+# Determinism. Seed the auction RNG independently of the main backtest seed.
+auction_seed: 42
+
+# Auction frequency:
+#  - "tick": re-resolve each tick (MAF can float tick-to-tick)
+#  - "once": resolve once at the first tick and cache
+auction_frequency: tick

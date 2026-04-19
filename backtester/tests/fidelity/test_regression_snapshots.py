@@ -64,6 +64,49 @@ SCENARIOS = [
             "market_trades": [],
             "timestamp": 100,
             "limit": 50,
+            "volume_multiplier": 1.0,
+        },
+    ),
+    (
+        "round2_boost_125_enables_extra_fill",
+        {
+            "symbol": "K",
+            "user_orders": [Order("K", 10010, 12)],
+            "book_buys": {9990: 5},
+            "book_sells": {10004: -10},  # base depth 10
+            "position": 0,
+            "market_trades": [],
+            "timestamp": 100,
+            "limit": 50,
+            "volume_multiplier": 1.25,  # boosted depth 12
+        },
+    ),
+    (
+        "round2_boost_150_enables_more_fills",
+        {
+            "symbol": "K",
+            "user_orders": [Order("K", 10010, 20)],
+            "book_buys": {9990: 5},
+            "book_sells": {10004: -10},
+            "position": 0,
+            "market_trades": [],
+            "timestamp": 100,
+            "limit": 50,
+            "volume_multiplier": 1.5,  # boosted depth 15
+        },
+    ),
+    (
+        "round2_no_boost_identical_to_baseline",
+        {
+            "symbol": "K",
+            "user_orders": [Order("K", 10010, 3)],
+            "book_buys": {9990: 5},
+            "book_sells": {10004: -5},
+            "position": 0,
+            "market_trades": [],
+            "timestamp": 100,
+            "limit": 50,
+            "volume_multiplier": 1.0,
         },
     ),
     (
@@ -77,6 +120,7 @@ SCENARIOS = [
             "market_trades": [],
             "timestamp": 100,
             "limit": 50,
+            "volume_multiplier": 1.0,
         },
     ),
     (
@@ -90,6 +134,7 @@ SCENARIOS = [
             "market_trades": [],
             "timestamp": 100,
             "limit": 50,
+            "volume_multiplier": 1.0,
         },
     ),
     (
@@ -105,6 +150,7 @@ SCENARIOS = [
             ],
             "timestamp": 100,
             "limit": 50,
+            "volume_multiplier": 1.0,
         },
     ),
     (
@@ -118,6 +164,7 @@ SCENARIOS = [
             "market_trades": [],
             "timestamp": 100,
             "limit": 50,
+            "volume_multiplier": 1.0,
         },
     ),
     (
@@ -131,6 +178,7 @@ SCENARIOS = [
             "market_trades": [],
             "timestamp": 100,
             "limit": 50,
+            "volume_multiplier": 1.0,
         },
     ),
 ]
@@ -148,6 +196,7 @@ def _run_scenario(inputs: Dict[str, Any]) -> Dict[str, Any]:
         position=inputs["position"],
         market_trades=inputs["market_trades"],
         timestamp=inputs["timestamp"],
+        volume_multiplier=inputs.get("volume_multiplier", 1.0),
     )
     return _result_to_dict(result)
 

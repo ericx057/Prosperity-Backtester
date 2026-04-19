@@ -26,12 +26,26 @@ HEAVY = 40  # inventory threshold beyond which we stop quoting the same side
 
 
 class Trader:
-    """Prosperity-compatible trader. Instantiated once per backtest."""
+    """Prosperity-compatible trader. Instantiated once per backtest.
 
-    def __init__(self, peg: int = PEG, quote_size: int = QUOTE_SIZE, heavy: int = HEAVY) -> None:
+    Round 2 support: exposes ``get_maf(state) -> float`` returning a
+    constructor-configured bid. Default is ``0.0`` (do not bid). A trader
+    that wants to participate in the MAF auction passes ``maf_bid=X`` at
+    construction. The method returns a constant here for determinism; a
+    production trader would compute the bid based on observed edge.
+    """
+
+    def __init__(
+        self,
+        peg: int = PEG,
+        quote_size: int = QUOTE_SIZE,
+        heavy: int = HEAVY,
+        maf_bid: float = 0.0,
+    ) -> None:
         self.peg = peg
         self.quote_size = quote_size
         self.heavy = heavy
+        self.maf_bid = maf_bid
 
     def run(
         self, state: TradingState
@@ -55,3 +69,12 @@ class Trader:
             orders[symbol] = product_orders
 
         return orders, 0, state.traderData
+
+    def get_maf(self, state: TradingState) -> float:
+        """Declare the MAF for the Round 2 auction. Default method name.
+
+        Returns the constructor-configured ``maf_bid`` as a SeaShells value.
+        A trader could compute this dynamically from ``state`` (e.g. bid
+        higher when edge is high) - the runner calls this once per tick.
+        """
+        return float(self.maf_bid)

@@ -21,6 +21,7 @@ import yaml
 
 from backtester.data_loader import load_day
 from backtester.reporter import write_json, write_summary_plot
+from backtester.round2 import Round2Config, load_round2_config_from_yaml
 from backtester.runner import BacktestConfig, run_backtest
 
 
@@ -110,6 +111,11 @@ def main(argv: Optional[list] = None) -> int:
     parser.add_argument("--config", default=None, help="optional run config YAML")
     parser.add_argument("--out", default="out/backtest", help="output directory")
     parser.add_argument(
+        "--round2-config",
+        default=None,
+        help="optional YAML configuring the Round 2 MAF auction",
+    )
+    parser.add_argument(
         "--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"]
     )
     args = parser.parse_args(argv)
@@ -146,11 +152,20 @@ def main(argv: Optional[list] = None) -> int:
         if product not in position_limits:
             position_limits[product] = 50
 
+    round2_cfg: Optional[Round2Config] = None
+    if args.round2_config:
+        round2_cfg = load_round2_config_from_yaml(args.round2_config)
+    elif "round2" in run_cfg:
+        # Allow embedding the Round 2 block inside the main run config.
+        from backtester.round2 import round2_config_from_dict
+        round2_cfg = round2_config_from_dict(run_cfg["round2"])
+
     config = BacktestConfig(
         position_limits=position_limits,
         timeout_ms=int(run_cfg.get("timeout_ms", 900)),
         yellow_threshold_ms=int(run_cfg.get("yellow_threshold_ms", 500)),
         seed=run_cfg.get("seed"),
+        round2=round2_cfg,
     )
 
     result = run_backtest(trader, data, config)
@@ -174,6 +189,20 @@ def main(argv: Optional[list] = None) -> int:
     print(f"max drawdown: {metrics.max_drawdown:.2f}")
     print(f"trades: {total_trades}  rejections: {total_rejections}  warnings: {total_warnings}")
     print(f"final positions: {result.final_positions}")
+    if round2_cfg is not None and round2_cfg.enabled:
+        num_wins = sum(
+            1
+            for tick in result.maf_auction_outcomes
+            for o in tick["outcomes"].values()
+            if o["won"]
+        )
+        num_events = sum(
+            len(tick["outcomes"]) for tick in result.maf_auction_outcomes
+        )
+        print(
+            f"round2: fees_paid={result.total_fees_paid:.4f}  "
+            f"wins={num_wins}/{num_events}"
+        )
     print(f"json: {json_path}")
     print(f"plot: {plot_path}")
     return 0

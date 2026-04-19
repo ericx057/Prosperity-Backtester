@@ -1,0 +1,33 @@
+# Round 2 parameter sweep example.
+#
+# Sweep dimensions prefixed with "round2." are routed into the Round 2 config
+# for that combo. Everything else goes to the trader factory.
+#
+# In this example we sweep:
+#   - quote_size, heavy: trader-level tuning
+#   - round2.competition_threshold: auction sensitivity
+#   - round2.volume_boost_pct: what-if analysis of the boost magnitude
+
+trader_class: example_trader.Trader
+trader_kwargs:
+  maf_bid: 5.0  # trader always bids 5.0 MAF
+position_limits:
+  RESIN: 50
+  KELP: 50
+
+# Base Round 2 config (overridable per combo via round2.* params).
+round2:
+  enabled: true
+  auction_mode: threshold
+  volume_boost_pct: 0.25
+  winner_top_fraction: 0.5
+
+params:
+  quote_size: [3, 5]
+  heavy: [30, 40]
+  round2.competition_threshold: [3.0, 5.0, 7.0]
+  round2.volume_boost_pct: [0.10, 0.25, 0.50]
+
+workers: 1
+seed: 0
+metric: net_pnl

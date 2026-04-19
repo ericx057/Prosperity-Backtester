@@ -1,0 +1,22 @@
+{
+  "new_book": {
+    "buy_orders": {
+      "9990": 5
+    },
+    "sell_orders": {
+      "10004": -2
+    }
+  },
+  "new_position": 3,
+  "rejections": [],
+  "trades": [
+    {
+      "buyer": "SUBMISSION",
+      "price": 10004,
+      "quantity": 3,
+      "seller": "",
+      "symbol": "K",
+      "timestamp": 100
+    }
+  ]
+}
